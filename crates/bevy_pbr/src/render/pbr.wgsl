@@ -542,13 +542,10 @@ fn fragment(in: FragmentInput) -> [[location(0)]] vec4<f32> {
             // but what alpha hashed offers over alpha mask is scaling noise,
             // which can help preserve details when viewing at a distance.
 
-            // Get object-space coordinates
-            let coords: vec3<f32> = in.object_position;
-
             // Find the discretized derivatives of our coordinates
             let max_deriv: f32 = max(
-                length(dpdx(coords)),
-                length(dpdy(coords))
+                length(dpdx(in.object_position)),
+                length(dpdy(in.object_position))
             );
             let pix_scale: f32 = 1.0/max_deriv;
 
@@ -560,8 +557,8 @@ fn fragment(in: FragmentInput) -> [[location(0)]] vec4<f32> {
 
             // Compute alpha thresholds at our two noise scales
             let alpha: vec2<f32> = vec2<f32>(
-                hash3D(floor(pix_scales.x * coords)),
-                hash3D(floor(pix_scales.y * coords))
+                hash3D(floor(pix_scales.x * in.object_position)),
+                hash3D(floor(pix_scales.y * in.object_position))
             );
 
             // Factor to interpolate lerp with
@@ -572,10 +569,13 @@ fn fragment(in: FragmentInput) -> [[location(0)]] vec4<f32> {
 
             // Pass into CDF to compute uniformly from noise at two scales
             let a: f32 = min(lerp_factor, 1.0 - lerp_factor);
+            let a_cmp: f32 = 1.0 - a;
+            let para: f32 = 2.0 * a * a_cmp;
+            let x_cmp: f32 = 1.0 - x;
             let cases: vec3<f32> = vec3<f32>(
-                x * x / (2.0 * a * (1.0 - a)),
-                (x - 0.5 * a) / (1.0 - a),
-                1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a)))
+                (x * x) / para,
+                (x - 0.5 * a) / a_cmp,
+                1.0 - ((x_cmp * x_cmp) / para)
             );
 
             // Find our final, uniformly distributed alpha threshold
