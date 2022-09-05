@@ -4,6 +4,7 @@
 #[cfg(target_pointer_width = "16")]
 compile_error!("bevy_ecs cannot safely compile for a 16-bit platform.");
 
+pub mod action;
 pub mod archetype;
 pub mod bundle;
 pub mod change_detection;

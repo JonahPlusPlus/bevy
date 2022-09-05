@@ -31,6 +31,10 @@ serde = "1"
 rand = "0.8"
 
 [[example]]
+name = "actions"
+path = "examples/actions.rs"
+
+[[example]]
 name = "events"
 path = "examples/events.rs"
 

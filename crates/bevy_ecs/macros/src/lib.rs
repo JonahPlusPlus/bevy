@@ -505,3 +505,75 @@ pub fn derive_resource(input: TokenStream) -> TokenStream {
 pub fn derive_component(input: TokenStream) -> TokenStream {
     component::derive_component(input)
 }
+
+struct Tuple {
+    idents: Vec<Ident>,
+}
+
+impl Parse for Tuple {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut idents = vec![];
+        if let Ok(first) = input.parse::<Ident>() {
+            idents.push(first);
+            while let Ok(_) = input.parse::<Comma>() {
+                if let Ok(ident) = input.parse::<Ident>() {
+                    idents.push(ident);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        Ok(Tuple { idents })
+    }
+}
+
+#[proc_macro]
+pub fn impl_action_set_tuple(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as Tuple);
+
+    let ids = input.idents;
+
+    if ids.is_empty() {
+        return TokenStream::new();
+    }
+
+    let mut insert_names = vec![];
+    let mut insert_branches = vec![];
+    ids.iter().enumerate().for_each(|(i, id)| {
+        let name = Ident::new(&format!("type_name_{i}"), Span::call_site());
+        let i = syn::Index::from(i);
+        insert_names.push(quote! {
+            let #name = std::any::type_name::<#id>();
+        });
+
+        insert_branches.push(quote! {
+            #name => {
+                match action.as_any().downcast_ref::<#id>() {
+                    Some(a) => self.#i.insert(ActionCall(0, a.clone())),
+                    None => panic!("Failed to downcast!")
+                }
+            },
+        });
+    });
+
+    TokenStream::from(quote! {
+        impl<#(#ids: Action,)*> ActionSet for (#(ResMut<'static, Actions<#ids>>,)*) {
+            type DoParamSet = (#(#ids::DoParam,)*);
+            
+            fn insert(&mut self, action: impl Action) {
+                #(#insert_names)*
+                match action.type_name() {
+                    #(#insert_branches)*
+                    _ => {
+                        panic!("Failed to get appropriate `Actions<T>` for `impl Action`!");
+                    }
+                }
+            }
+            
+            fn do_action(&mut self) {
+                
+            }
+        }
+    })
+}
