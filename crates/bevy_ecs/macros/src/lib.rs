@@ -538,41 +538,51 @@ pub fn impl_action_set_tuple(input: TokenStream) -> TokenStream {
         return TokenStream::new();
     }
 
-    let mut insert_names = vec![];
     let mut insert_branches = vec![];
+    let mut do_action_branches = vec![];
     ids.iter().enumerate().for_each(|(i, id)| {
-        let name = Ident::new(&format!("type_name_{i}"), Span::call_site());
         let i = syn::Index::from(i);
-        insert_names.push(quote! {
-            let #name = std::any::type_name::<#id>();
-        });
-
         insert_branches.push(quote! {
-            #name => {
+            if type_name == std::any::type_name::<#id>() {
                 match action.as_any().downcast_ref::<#id>() {
-                    Some(a) => self.#i.insert(ActionCall(0, a.clone())),
+                    Some(a) => actions.#i.insert(ActionCall(counter.incr(), a.clone())),
                     None => panic!("Failed to downcast!")
                 }
-            },
+                return;
+            }
+        });
+        
+        do_action_branches.push(quote! {
+            let current_count = actions.#i.first_todo();
+            if current_count < first_count {
+                first = #i;
+                first_count = current_count;
+            } 
         });
     });
 
     TokenStream::from(quote! {
-        impl<#(#ids: Action,)*> ActionSet for (#(ResMut<'static, Actions<#ids>>,)*) {
+        impl<'w, 's, #(#ids: Action,)*> ActionSet for (#(#ids,)*) {
+            type ActionsFetch = (#(ResMut<'static, Actions<#ids>>,)*);
             type DoParamSet = (#(#ids::DoParam,)*);
             
-            fn insert(&mut self, action: impl Action) {
-                #(#insert_names)*
-                match action.type_name() {
-                    #(#insert_branches)*
-                    _ => {
-                        panic!("Failed to get appropriate `Actions<T>` for `impl Action`!");
-                    }
-                }
+            fn insert(action: impl Action, mut actions: &mut SystemParamItem<Self::ActionsFetch>, mut counter: &mut ActionCallCounter) {
+                let type_name = action.type_name();
+                
+                #(#insert_branches)*
+                
+                panic!("Failed to find matching type!");
             }
             
-            fn do_action(&mut self) {
+            fn do_action(actions: &mut SystemParamItem<Self::ActionsFetch>, params: &mut SystemParamItem<Self::DoParamSet>) {
+                let mut first_count = actions.0.first_todo();
+                let mut first = 0;
                 
+                #(#do_action_branches)*
+                
+                match first {
+                    _ => unreachable!("Impossible to have a index that doesn't exist")
+                }
             }
         }
     })

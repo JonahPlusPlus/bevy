@@ -1,7 +1,7 @@
-use crate::system::{ResMut, ResMutState, Resource, SystemParam, StaticSystemParam, Local};
+use crate::system::{ResMut, ResMutState, Resource, SystemParam, StaticSystemParam, SystemParamItem};
 use bevy_ecs_macros::{all_tuples, impl_action_set_tuple};
 use bevy_reflect::Reflect;
-use std::{collections::VecDeque, marker::PhantomData};
+use std::{collections::VecDeque, ops::DerefMut};
 
 pub trait Action: Reflect + Clone {
     type DoParam: SystemParam;
@@ -15,14 +15,13 @@ impl<T: Action> SystemParam for T {
     type Fetch = ResMutState<Actions<T>>;
 }
 
-pub struct ActionCall<T: Action>(u32, T);
+pub struct ActionCall<T: Action>(u64, T);
 
+#[derive(Resource)]
 pub struct Actions<T: Action> {
     queue: VecDeque<ActionCall<T>>,
     stack: Vec<ActionCall<T>>,
 }
-
-impl<T: Action> Resource for Actions<T> {}
 
 impl<T: Action> Actions<T> {
     pub fn new() -> Self {
@@ -36,8 +35,8 @@ impl<T: Action> Actions<T> {
         self.queue.push_back(action);
     }
     
-    pub fn first_todo() {
-        
+    pub fn first_todo(&mut self) -> u32 {
+        0
     }
 
     pub fn do_action(&mut self, param: T::DoParam) -> bool {
@@ -54,23 +53,43 @@ impl<T: Action> Actions<T> {
     }
 }
 
-pub struct ActionView<S: ActionSet> {
-    set: S,
-    counter: u32
-}
+use crate as bevy_ecs;
 
-impl<'w, 's, S: ActionSet> ActionView<'w, 's, S> {
-    pub fn insert(&mut self, action: impl Action) {
-        self.set.insert(action);
+#[derive(Resource)]
+pub struct ActionCallCounter(u64);
+
+impl ActionCallCounter {
+    pub fn incr(&mut self) -> u64 {
+        let ActionCallCounter(c) = self;
+        *c += 1;
+        return *c;
     }
 }
 
-pub trait ActionSet: SystemParam {
-    type DoParamSet: SystemParam;
+#[derive(SystemParam)]
+pub struct ActionView<'w, 's, S: ActionSet + 'static> {
+    actions: StaticSystemParam<'w, 's, S::ActionsFetch>,
+    do_params: StaticSystemParam<'w, 's, S::DoParamSet>,
+    counter: ResMut<'w, ActionCallCounter>,
+}
+
+impl<'w, 's, S: ActionSet + 'static> ActionView<'w, 's, S> {
+    pub fn insert(&mut self, action: impl Action) {
+        S::insert(action, self.actions.deref_mut(), self.counter.deref_mut());
+    }
     
-    fn insert(&mut self, action: impl Action);
+    pub fn do_action(&mut self) {
+        S::do_action(self.actions.deref_mut(), self.do_params.deref_mut()); 
+    }
+}
+
+pub trait ActionSet {
+    type ActionsFetch: SystemParam + 'static;
+    type DoParamSet: SystemParam + 'static;
     
-    fn do_action(&mut self);
+    fn insert(action: impl Action, actions: &mut SystemParamItem<Self::ActionsFetch>, counter: &mut ActionCallCounter);
+    
+    fn do_action(actions: &mut SystemParamItem<Self::ActionsFetch>, params: &mut SystemParamItem<Self::DoParamSet>);
 }
 
 all_tuples!(impl_action_set_tuple, 0, 16, P);
